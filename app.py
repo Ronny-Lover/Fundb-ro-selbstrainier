@@ -3,28 +3,28 @@ import tensorflow as tf
 import numpy as np
 from PIL import Image
 
-
 # --------------------------------------------------
-# Konfiguration
+# Einstellungen
 # --------------------------------------------------
 
 st.set_page_config(
-    page_title="Fundbüro",
-    page_icon="🔎",
+    page_title="Funbüro KI",
+    page_icon="👕",
     layout="centered"
 )
 
-
-# --------------------------------------------------
-# Kategorien
-# --------------------------------------------------
-
-CATEGORIES = [
+CLASS_NAMES = [
     "Hosen",
-    "Jacken und Hoodies",
+    "Jacken und hoodies",
     "Schuhe",
-    "T-Shirt"
+    "Tshirt"
 ]
+
+MODEL_PATH = "model.h5"
+
+# Hier musst du ggf. die Größe anpassen,
+# mit der dein Modell trainiert wurde.
+IMAGE_SIZE = (224, 224)
 
 
 # --------------------------------------------------
@@ -33,94 +33,33 @@ CATEGORIES = [
 
 @st.cache_resource
 def load_model():
-    return tf.keras.models.load_model("model.h5")
+    return tf.keras.models.load_model(MODEL_PATH)
 
 
 model = load_model()
 
 
 # --------------------------------------------------
-# Bildgröße aus Modell auslesen
+# Oberfläche
 # --------------------------------------------------
 
-def get_image_size():
-
-    input_shape = model.input_shape
-
-    height = input_shape[1]
-    width = input_shape[2]
-
-    if height is None or width is None:
-        raise ValueError(
-            "Die Eingabegröße des Modells konnte nicht ermittelt werden."
-        )
-
-    return int(width), int(height)
-
-
-# --------------------------------------------------
-# Bild klassifizieren
-# --------------------------------------------------
-
-def predict_image(image):
-
-    width, height = get_image_size()
-
-    # RGB erzwingen
-    image = image.convert("RGB")
-
-    # Auf Modellgröße bringen
-    image = image.resize((width, height))
-
-    # NumPy
-    image_array = np.array(image)
-
-    # Normalisierung
-    image_array = image_array.astype("float32") / 255.0
-
-    # Batch Dimension
-    image_array = np.expand_dims(image_array, axis=0)
-
-    # Vorhersage
-    prediction = model.predict(
-        image_array,
-        verbose=0
-    )
-
-    probabilities = prediction[0]
-
-    predicted_index = np.argmax(probabilities)
-
-    category = CATEGORIES[predicted_index]
-
-    confidence = float(
-        probabilities[predicted_index]
-    )
-
-    return category, confidence, probabilities
-
-
-# --------------------------------------------------
-# Benutzeroberfläche
-# --------------------------------------------------
-
-st.title("🔎 Fundbüro")
-
-st.write(
-    "Lade ein Bild eines gefundenen Kleidungsstücks hoch. "
-    "Das KI-Modell versucht anschließend, die Kategorie zu erkennen."
-)
+st.title("👕 Funbüro")
+st.write("Lade ein Kleidungsstück hoch und die KI ordnet es einer Kategorie zu.")
 
 
 uploaded_file = st.file_uploader(
-    "Bild auswählen",
-    type=["jpg", "jpeg", "png", "webp"]
+    "Bild hochladen",
+    type=["jpg", "jpeg", "png"]
 )
 
 
+# --------------------------------------------------
+# Bild verarbeiten und vorhersagen
+# --------------------------------------------------
+
 if uploaded_file is not None:
 
-    image = Image.open(uploaded_file)
+    image = Image.open(uploaded_file).convert("RGB")
 
     st.image(
         image,
@@ -128,56 +67,59 @@ if uploaded_file is not None:
         use_container_width=True
     )
 
-    if st.button(
-        "🔍 Bild analysieren",
-        use_container_width=True
-    ):
+    if st.button("🔍 Bild analysieren"):
 
-        try:
+        with st.spinner("KI analysiert das Bild..."):
 
-            category, confidence, probabilities = predict_image(image)
+            # Bild auf Modellgröße bringen
+            resized_image = image.resize(IMAGE_SIZE)
 
-            st.success(
-                f"Erkannt: **{category}**"
+            # In NumPy-Array umwandeln
+            image_array = np.array(resized_image)
+
+            # Pixelwerte normalisieren
+            image_array = image_array.astype("float32") / 255.0
+
+            # Batch-Dimension hinzufügen
+            image_array = np.expand_dims(image_array, axis=0)
+
+            # Vorhersage
+            prediction = model.predict(image_array)
+
+            # Wahrscheinlichkeiten
+            probabilities = prediction[0]
+
+            # Index der höchsten Wahrscheinlichkeit
+            predicted_index = np.argmax(probabilities)
+
+            # Kategorie
+            predicted_class = CLASS_NAMES[predicted_index]
+
+            # Wahrscheinlichkeit
+            confidence = probabilities[predicted_index] * 100
+
+        st.success(f"Erkannte Kategorie: **{predicted_class}**")
+
+        st.metric(
+            "Treffsicherheit",
+            f"{confidence:.2f} %"
+        )
+
+        # --------------------------------------------------
+        # Wahrscheinlichkeiten anzeigen
+        # --------------------------------------------------
+
+        st.subheader("Wahrscheinlichkeiten")
+
+        for class_name, probability in zip(
+            CLASS_NAMES,
+            probabilities
+        ):
+            st.write(
+                f"**{class_name}:** "
+                f"{probability * 100:.2f} %"
             )
 
-            st.metric(
-                "Konfidenz",
-                f"{confidence * 100:.2f} %"
+            st.progress(
+                float(probability)
             )
-
-            # Wahrscheinlichkeiten anzeigen
-            st.subheader("Wahrscheinlichkeiten")
-
-            for category_name, probability in zip(
-                CATEGORIES,
-                probabilities
-            ):
-
-                st.write(
-                    f"**{category_name}**: "
-                    f"{probability * 100:.2f} %"
-                )
-
-                st.progress(
-                    float(probability)
-                )
-
-        except Exception as e:
-
-            st.error(
-                f"Fehler bei der Bilderkennung: {e}"
-            )
-
-
-# --------------------------------------------------
-# Informationen
-# --------------------------------------------------
-
-st.divider()
-
-st.subheader("Erkennbare Kategorien")
-
-for category in CATEGORIES:
-    st.write(f"- {category}")
-
